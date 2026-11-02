@@ -269,6 +269,14 @@ class PullRequestIntegrationTests(_WorktreeCase):
         self.assertEqual(command[:4], ["gh", "pr", "view", self.branch])
         self.assertEqual(query.call_args.kwargs["cwd"], self.worker)
 
+    def test_a_tracked_fork_branch_uses_its_owner_to_find_the_pull_request(self):
+        _git(self.worker, "remote", "add", "fork", "https://github.com/contributor/peach.git")
+        _git(self.worker, "config", f"branch.{self.branch}.remote", "fork")
+        with self.github() as query:
+            result = integrate(self.repo, self.branch)
+        self.assertEqual(query.call_args.args[0][:4], ["gh", "pr", "view", f"contributor:{self.branch}"])
+        self.assertEqual(result["pull_request"]["head"], self.head)
+
     def test_an_older_remote_head_and_another_base_are_refused(self):
         for field, value, message in (("headRefOid", "0" * 40, "提交.*不一致"),
                                       ("baseRefName", "other", "目标分支"),

@@ -170,12 +170,22 @@ def require_verified(worker: Path, target_branch: str, paths: Iterable[str]) -> 
         raise WorkspaceError("验证检查期间工作树改变，请重试")
 
 
+def _pull_request_head(worker: Path, branch: str) -> str:
+    """跟踪 fork 的分支须带 owner，避免 gh 只在目标仓库所有者名下查找。"""
+    remote = _git(worker, "config", "--get", f"branch.{branch}.remote", check=False).stdout.strip()
+    if not remote or remote == '.':
+        return branch
+    address = _git(worker, "remote", "get-url", remote, check=False).stdout.strip()
+    matched = re.fullmatch(r'(?:https?://[^/]+/|git@[^:]+:)([^/]+)/[^/]+', address)
+    return f'{matched[1]}:{branch}' if matched else branch
+
+
 def require_pull_request(worker: Path, branch: str, target_branch: str, head: str) -> dict[str, str]:
     """用工作树的 GitHub 仓库上下文取得当前分支 PR，绑定精确提交与目标分支。"""
     fields = ("url", "state", "headRefOid", "baseRefName")
     try:
         result = subprocess.run(
-            ["gh", "pr", "view", branch, "--json", ",".join(fields)], cwd=worker,
+            ["gh", "pr", "view", _pull_request_head(worker, branch), "--json", ",".join(fields)], cwd=worker,
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
