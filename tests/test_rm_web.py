@@ -587,7 +587,7 @@ class WebDataTests(unittest.TestCase):
         # 存储卷那一段顺着 `translate_ledger_path` 也要读 `mounts`，缺字段就是
         # AttributeError。Windows 上账本路径不必翻译、走不到那一步，只有 macOS 会红。
         config = replace(
-            web_stats.settings_file.load_config(environ={}, strict=False),
+            web_stats.settings_file.load_config(project_root=Path(self.db_path).parent, environ={}, strict=False),
             locations={"local": (r"R:\Media", r"R:\Media-more")},
             library_names={}, library_icons={})
         with mock.patch.object(web_stats.settings_file, "active", return_value=config):
