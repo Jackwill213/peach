@@ -11,7 +11,6 @@ import { setCollapseOpen } from '@peach/legacy/ui';
 import { SettingsCard, SettingsSectionLabel } from '@/components/application/settings/settings-rows';
 import { LinkButton } from '@/components/base/buttons/link-button';
 import { cx } from '@/utils/cx';
-import { GuideHelp } from '../onboarding/guide-help';
 
 interface SectionProps {
   title: string;
@@ -39,7 +38,6 @@ export function Section({ title, guide, icon, id, aside, onSubmit, children }: S
             <div className="flex min-w-0 max-w-full">{aside}</div>
           </div>
         : <SettingsSectionLabel>{label}</SettingsSectionLabel>}
-      {guide ? <GuideHelp section={guide} /> : null}
       <SettingsCard>{children}</SettingsCard>
     </>
   );
@@ -89,6 +87,22 @@ export function Help({ role, children }: { role?: 'status'; children: ReactNode 
 
 export function ErrorText({ children }: { children: ReactNode }) {
   return <p role="alert" className="text-body-2-regular text-text-error-primary">{children}</p>;
+}
+
+/** 设置页做不了、要在宿主机上照抄执行的几步：每步一句说明加一条命令（容器的迁移与更新）。 */
+export function CommandSteps({ label, steps }: { label: string; steps: { text: string; command: string }[] }) {
+  return (
+    <ol className="flex list-decimal flex-col gap-2 pl-5 text-body-2-regular text-text-secondary" aria-label={label}>
+      {steps.map((step) => (
+        <li key={step.command}>
+          {step.text}
+          <code className="mt-1 block rounded-md bg-background-tertiary-default px-2 py-1 text-caption-1-regular break-all text-text-primary">
+            {step.command}
+          </code>
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 /** 字段上方的名字，外观同 BoardUI `Label`；控件自己的无障碍名称由 `aria-label` 给。 */
