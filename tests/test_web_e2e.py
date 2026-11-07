@@ -164,11 +164,14 @@ class PlayerFramingE2ETests(unittest.TestCase):
         if not node or not chrome or not (FRONTEND / "node_modules/playwright-core").is_dir():
             missing_prerequisite("全屏画面测试需要 Node、playwright-core 与测试浏览器")
         environment = dict(os.environ, PEACH_E2E_CHROME=chrome)
-        result = subprocess.run(
-            [node, "--test", "e2e/player-fit.test.ts"], cwd=FRONTEND, env=environment,
-            capture_output=True, text=True, encoding="utf-8", timeout=150,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        BROWSER_LOGS.mkdir(parents=True, exist_ok=True)
+        log_path = BROWSER_LOGS / 'player-fit.tap'
+        with log_path.open('w', encoding='utf-8') as output:
+            result = subprocess.run(
+                [node, "--test", "e2e/player-fit.test.ts"], cwd=FRONTEND, env=environment,
+                stdout=output, stderr=subprocess.STDOUT, timeout=150,
+            )
+        self.assertEqual(result.returncode, 0, log_path.read_text(encoding='utf-8'))
 
 
 @windows_ledger_roots

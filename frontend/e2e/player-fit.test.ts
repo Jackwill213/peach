@@ -20,18 +20,30 @@ describe(`全屏画面比例：${stylesheet}`, () => {
       const page = await browser.newPage({ viewport });
       try {
         const css = readFileSync(new URL(stylesheet, import.meta.url), 'utf8');
-        await page.setContent(`<style>${css}</style><div data-stage-media>
+        await page.route('http://localhost/player-fit', route => route.fulfill({
+          contentType: 'text/html', body: `<style>${css}</style><div data-stage-media>
           <div class="video-js"><video-player><media-container>
             <video class="vjs-tech" width="1920" height="1080"></video>
             <button style="position:relative;z-index:1">全屏</button>
-          </media-container></video-player></div></div>`);
+          </media-container></video-player></div></div>`,
+        }));
+        await page.goto('http://localhost/player-fit');
         await page.locator('button').evaluate(button => {
-          button.addEventListener('click', () => button.parentElement!.requestFullscreen());
+          button.addEventListener('click', () => {
+            void button.parentElement!.requestFullscreen().catch(error => {
+              button.dataset.fullscreenError = JSON.stringify({ error: String(error),
+                enabled: document.fullscreenEnabled, active: navigator.userActivation.isActive,
+                focused: document.hasFocus(), origin: location.origin, secure: isSecureContext });
+            });
+          });
         });
         const video = page.locator('video');
         assert.equal(await video.evaluate(node => getComputedStyle(node).objectFit), 'contain');
         await page.locator('button').click();
-        await page.waitForFunction(() => !!document.fullscreenElement);
+        await page.waitForFunction(() => !!document.fullscreenElement
+          || !!document.querySelector<HTMLButtonElement>('button')?.dataset.fullscreenError,
+        undefined, { timeout: 5000 });
+        assert.equal(await page.locator('button').getAttribute('data-fullscreen-error'), null);
         const frame = await video.evaluate(node => {
           const rect = node.getBoundingClientRect();
           return { fit: getComputedStyle(node).objectFit,
