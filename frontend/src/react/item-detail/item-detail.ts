@@ -13,6 +13,7 @@ import { mixLabel, type FaceRef } from '@peach/card-art';
 import { apiGet } from '../../api';
 import type { MediaCardActions, MediaCardHelpers, MediaCardLayout, MediaItem } from '../catalog-grid/types';
 import { queryClient } from '../query';
+import type { PendingWorkItem } from '../components/pending-work';
 
 /* ── 接口形状（`src/peach/web_catalog.py` 的 `q_item`） ── */
 
@@ -38,6 +39,8 @@ type CardFields = { [K in keyof MediaItem as string extends K ? never : K]: Medi
 export interface DetailItem extends Omit<CardFields, 'tags'> {
   [field: string]: unknown;
   error?: string;
+  /** 刚入库还在补资料：扫描与采集或云下载后处理还没走完。 */
+  pending_work?: PendingWorkItem[];
   title?: string;
   width?: number | null;
   height?: number | null;
@@ -425,7 +428,7 @@ export function pickerSections(query: string, candidates: readonly TagCount[], r
 
 /** 版次徽章的配色跟卡片标题上的那套走。多一个 `有码`：卡片上正片不加角标是对的（没角标就是
  *  正片），但队列里两条并排时「什么都不写」等于让人自己猜哪条是哪条。 */
-export const EDITION_TONE: Record<string, string> = { 中字: 'subtitle', 无码: 'uncensored', 无码破解: 'cracked', 有码: 'censored' };
+export const EDITION_TONE: Record<string, string> = { 中字: 'subtitle', 无码: 'uncensored', 无码流出: 'leaked', 无码破解: 'cracked', 有码: 'censored' };
 
 const QUEUE_LABEL: Record<QueueKind, string> = { mix: 'Mix', parts: '分卷', editions: '版本', playlist: '播放列表' };
 

@@ -19,8 +19,6 @@
  * 点击的分流：多选与修饰键优先，然后是打开、实体链接、未归属、
  * 标签，其余落到整张卡上就是打开。 */
 import { memo, useCallback, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
-import { Dialog, Popover } from 'react-aria-components';
-import { MENU_POPOVER_SURFACE } from '@/components/base/dropdown/menu-styles';
 import { cardRatio as layoutRatio } from '@peach/appearance';
 import {
   cardArtwork, cardIdentity, entityAvatar, frameArtwork, performerLabel, relayoutCovers, releaseHover, wireHover,
@@ -32,6 +30,9 @@ import { useEntityNames } from '../use-entity-names';
 
 import type { MediaCardActions, MediaCardHelpers, MediaCardLayout, MediaItem } from '../catalog-grid/types';
 import { ArtSlot } from './art-slot';
+import { ArtworkGapView, failedArtwork, missingArtwork, type ArtworkGap } from './artwork-gap';
+import { CardDate, CardTags, Icon, WhoLabel } from './card-meta';
+import { RecommendationReason } from './recommendation-reason';
 import { useLibraryTints } from './library-tint';
 import { suppressShiftTextSelection } from './row-click';
 
@@ -43,25 +44,9 @@ export type MediaCardVariant = 'grid' | 'short' | 'next' | 'resource';
 /** 片名空着时卡片标题与读屏名的兜底，资源卡那一档是「未命名资源」。 */
 const UNNAMED = '未命名视频';
 
-/** 雪碧图里的一枚字形，写法同遗留层 `icon()`：尺寸与描边由 `./media-card.css` 按位置给。 */
-function Icon({ name }: { name: string }) {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><use href={`#i-${name}`} /></svg>;
-}
 
 const RESOURCE_LABELS: Record<string, string> = { image: '图片', audio: '音频', archive: '压缩包', other: '其它文件' };
 const DISPOSAL_LABELS = { manual: '手动', junk: '垃圾', duplicate: '重复', missing: '文件缺失' };
-
-function missingDuration(item: MediaItem): { key: string; label: string } {
-  // media_probe 将已探查但未取得时长记为 -1；NULL 才是尚未探查。
-  if (Number(item.duration) < 0) return { key: 'unavailable', label: '探查错误' };
-  if (item.duration != null) return { key: 'unknown', label: '时长未取得' };
-  if (item.location === 'online') return { key: 'online', label: '来源未提供时长' };
-  const path = String(item.path || item.name || '').toLowerCase();
-  if (item.is_strm || path.endsWith('.strm')) return { key: 'strm', label: 'STRM 不自动探查' };
-  if (path.endsWith('.iso')) return { key: 'iso', label: 'ISO 不自动探查' };
-  if (item.cost === 'metered') return { key: 'metered', label: '流量保护 · 未探查' };
-  return { key: 'pending', label: '尚未探查' };
-}
 
 function DisposalReason({ item }: { item: MediaItem }) {
   if (item.disposal !== 'trash') return null;
@@ -145,14 +130,14 @@ export function identityParts(item: MediaItem): { avatar: ReactNode; who: ReactN
   const who = coStarred
     ? (
       <>
-        <button type="button" data-media-who="" data-entity-kind="performer" data-entity-name={performer} title={entityDisplayName('performer', performer)}><Icon name="user-round" /><span>{entityDisplayName('performer', performer)}</span></button>
+        <button type="button" data-media-who="" data-entity-kind="performer" data-entity-name={performer} title={entityDisplayName('performer', performer)}><WhoLabel name={entityDisplayName('performer', performer)} /></button>
         <span data-media-who-more="">{`等 ${total} 人`}</span>
       </>
     )
     : kind
-      ? <button type="button" data-media-who="" data-entity-kind={kind} data-entity-name={name} title={entityDisplayName(kind, name)}><Icon name="user-round" /><span>{entityDisplayName(kind, name)}</span></button>
+      ? <button type="button" data-media-who="" data-entity-kind={kind} data-entity-name={name} title={entityDisplayName(kind, name)}><WhoLabel name={entityDisplayName(kind, name)} /></button>
       /* 没有署名人的那批是馆藏里的一类，点得开，和女优名、厂牌名一样。 */
-      : <button type="button" data-media-who="" data-open-unowned=""><Icon name="user-round" /><span>{name}</span></button>;
+      : <button type="button" data-media-who="" data-open-unowned=""><WhoLabel name={name} /></button>;
   return { avatar, who };
 }
 
@@ -188,24 +173,6 @@ function LaterButton({ item, actions, on, onChange }: {
   );
 }
 
-/** 推荐理由独占内容行，完整文本可由键盘或触屏打开。 */
-function RecommendationReason({ reason }: { reason: string }) {
-  const trigger = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  return <>
-    <button ref={trigger} type="button" data-media-next-reason="" title={reason}
-      aria-label={`查看推荐理由：${reason}`} aria-haspopup="dialog" aria-expanded={open}
-      onClick={event => { event.stopPropagation(); setOpen(true) }}>{reason}</button>
-    <Popover triggerRef={trigger} isOpen={open} onOpenChange={setOpen} placement="top" offset={8}
-      containerPadding={12} className={MENU_POPOVER_SURFACE}>
-      <Dialog data-media-reason-dialog="" aria-label="推荐理由"
-        className="w-64 max-w-full p-2 text-body-regular whitespace-normal break-words text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-border-focus-ring">
-        {reason}
-      </Dialog>
-    </Popover>
-  </>;
-}
-
 /** 快退、快进跳的是悬停预览那段视频本身，不打开详情。 */
 function seekPreview(card: HTMLElement | null, delta: number) {
   const video = card?.querySelector<HTMLVideoElement & { _hop?: ReturnType<typeof setInterval> | null }>('video.hv');
@@ -224,14 +191,13 @@ function VideoCard({ item, variant, layout, selected, selectMode, seekSeconds, h
   const flaggedBy = [Number(item.liked) > 0 ? '喜欢' : '', Number(item.o_count) > 0 ? '有高潮记录' : ''].filter(Boolean);
   const latest = useRef(item);
   latest.current = item;
-  /* 悬停预览只接一次：`wireHover` 往卡上挂监听，ref 回调换了身份 React 就会先卸后挂，
-     同一张卡上会叠出第二套。卸载时收掉正在放的预览。 */
+  /* 资源身份或缩略图能力变化时重绑；wireHover 先清理旧事件，避免虚拟卡片复用旧资源。 */
   const attach = useCallback((el: HTMLElement | null) => {
     const current = latest.current;
     if (card.current && card.current !== el) releaseHover(card.current);
     card.current = el;
     if (el && (!current.medium || current.medium === 'video')) wireHover(el, current);
-  }, []);
+  }, [item.id, item.location, item.has_thumb, item.medium]);
 
   /* 按画幅筛的列表里，接口只算同画幅的卷与版本，组可能只剩一卷或一个版本：那张卡就是这一个
      文件自己，不叠纸边、不标卷数或版本数。 */
@@ -243,16 +209,32 @@ function VideoCard({ item, variant, layout, selected, selectMode, seekSeconds, h
   const size = jav ? layout.size : 'small';
   /* 竖屏格（竖屏带与筛竖屏的网格）只展示竖屏比例的视频，卡面只用视频自己的帧图；番号作品也
      不走官方封面，「JAV 默认封面」设置在这里不起作用：那张封面是整部作品的宣传图，多是横图，
-     和这一卷竖屏视频不是同一个画面。没有帧图就是「无预览」。 */
+     和这一卷竖屏视频不是同一个画面。没有图时写缺的是什么、为什么缺（`./artwork-gap.tsx`）。 */
   const frameOnly = ratio === PORTRAIT_RATIO && !!item.is_jav;
-  const artwork = frameOnly ? frameArtwork(item, false) : cardArtwork(item, size, false, layout.javImage);
-  const identity = frameOnly || size === 'small' ? artwork.html : cardArtwork(item, 'small', false, layout.javImage).html;
+  const drawn = frameOnly ? frameArtwork(item, false) : cardArtwork(item, size, false, layout.javImage);
+  const identity = frameOnly || size === 'small' ? drawn.html : cardArtwork(item, 'small', false, layout.javImage).html;
+  /* 取失败记在当时那段片段上：换了图（补到封面、改了「JAV 默认封面」）就不再算失败。重试给地址
+     添一个序号，身份跟着变，`ArtSlot` 才会换一个新元素重新取。 */
+  const [failure, setFailure] = useState<{ html: string; gap: ArtworkGap | null } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const failed = failure?.html === drawn.html ? failure : null;
+  const artwork = attempt ? { ...drawn, html: drawn.html.replace(/ src="([^"]*)"/, (_all, src: string) =>
+    ` src="${src}${src.includes('?') ? '&amp;' : '?'}r=${attempt}"`) } : drawn;
+  const onFailed = useCallback((src: string) => {
+    const html = drawn.html;
+    setFailure({ html, gap: null });
+    void failedArtwork(src.replace(/&r=\d+$/, ''), drawn.kind).then(gap =>
+      setFailure(current => current?.html === html ? { html, gap } : current));
+  }, [drawn.html, drawn.kind]);
+  const retry = useCallback(() => { setFailure(null); setAttempt(count => count + 1) }, []);
+  const gap = !artwork.html ? missingArtwork(item, frameOnly) : failed
+    ? failed.gap || { key: 'checking', title: drawn.kind === 'cover' ? '封面未取得' : '预览未取得', reason: '正在查原因', fix: '' as const }
+    : null;
   const rawName = parts?.title || item.name || '';
   const shownName = helpers.displayName(item, rawName).trim() || UNNAMED;
   const titleHtml = helpers.titleHtml(item, rawName).trim() || esc(UNNAMED);
   const shownSize = parts?.total_size ?? item.size;
   const shownDuration = parts?.total_duration ?? item.duration;
-  const durationReason = Number(shownDuration) > 0 ? null : missingDuration(item);
   const watched = !parts && Number(item.play_seconds) > 0 && Number(item.duration) > 0
     ? Math.min(Number(item.play_seconds) / Number(item.duration), 1) : 0;
   const { avatar, who } = identityParts(item);
@@ -284,9 +266,10 @@ function VideoCard({ item, variant, layout, selected, selectMode, seekSeconds, h
   const pic = (
     <div data-media-pic="" data-pic-portrait={ratio === PORTRAIT_RATIO ? '' : undefined}
       style={{ '--card-ratio': String(ratio) } as CSSProperties}>
-      {artwork.html
-        ? <ArtSlot artwork={artwork} identity={identity} relayout={(root) => relayoutCovers(root, size)} />
-        : <span data-media-nopic="">无预览</span>}
+      {gap
+        ? <ArtworkGapView gap={gap} item={item} onRetry={retry} />
+        : <ArtSlot artwork={artwork} identity={`${identity}#${attempt}`} relayout={(root) => relayoutCovers(root, size)}
+          onFailed={onFailed} />}
       <div data-media-badge="" dangerouslySetInnerHTML={{ __html: helpers.badgeHtml(item.location || '', item.cost || '') }} />
       <span data-media-check=""><Icon name="check" /></span>
       <span data-media-trash-mark=""><Icon name="trash" /><b>回收站</b></span>
@@ -294,9 +277,7 @@ function VideoCard({ item, variant, layout, selected, selectMode, seekSeconds, h
       {editions
         ? <span data-media-group="" title={editions.editions.join(' · ')}>{`${Number(editions.count).toLocaleString()} 个版本`}</span>
         : null}
-      <span data-media-duration="" data-copy-key={durationReason ? `media.duration.${durationReason.key}` : undefined}>
-        {durationReason ? durationReason.label : fmtDur(shownDuration)}
-      </span>
+      {Number(shownDuration) > 0 ? <span data-media-duration="">{fmtDur(shownDuration)}</span> : null}
       {!selectMode && item.disposal === 'trash' ? <ResourceAction item={item} actions={actions} /> : null}
       {watched > 0
         ? (
@@ -356,19 +337,13 @@ function VideoCard({ item, variant, layout, selected, selectMode, seekSeconds, h
             {who}
             {item.why && variant !== 'next' ? <span data-media-why="" title={item.why}>{item.why}</span> : null}
             <span data-media-facts="">
-              {item.is_jav && item.release_date ? <time data-media-release="" dateTime={item.release_date} title={item.release_date}><Icon name="calendar" />{item.release_date}</time> : null}
+              {item.is_jav && item.release_date ? <CardDate value={item.release_date} label={item.release_date} /> : null}
               <span data-media-size=""><Icon name="hard-drive" />{Number(shownSize) > 0 ? fmtSize(Number(shownSize)) : '大小未知'}</span>
             </span>
           </div>
-          {variant === 'next' ? (item.why ? <RecommendationReason reason={item.why} /> : null) : tags.length || item.disposal === 'trash'
-            ? (
-              <div data-media-tags="">
-                {tags.map((tag) => (
-                  <button key={tag} type="button" data-media-tag="" disabled={!!item.follow_item_id}
-                    data-tag={item.follow_item_id ? undefined : tag}>{helpers.tagLabel(tag)}</button>
-                ))}
-              </div>
-            )
+          {variant === 'next' ? <RecommendationReason reasons={item.why ? item.why.split(' · ') : []}
+            tags={(item.why_tags || []).map(helpers.tagLabel)} /> : tags.length || item.disposal === 'trash'
+            ? <CardTags tags={tags} label={helpers.tagLabel} readOnly={!!item.follow_item_id} />
             : null}
           <DisposalReason item={item} />
         </div>

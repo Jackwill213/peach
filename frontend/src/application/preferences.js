@@ -2,6 +2,7 @@
 import { loadMediaSources } from './../query/media-sources';
 import { buildBars, catalogState, dropOfflineFromDefaultLoc, homePath, loadCatalog, paintCatalogFilter, repaintCatalogGrid } from './catalog.js';
 import { appSettingsStore } from './../appearance/settings';
+import { interfaceLanguage, storedInterfaceLanguage } from '../i18n';
 import { entityDisplayName, setNameLanguage } from '../core/entity-names';
 import { playUiSound, setUiSoundsEnabled, wireUiSounds } from '../ui-kit/sounds';
 import { applyTheme, watchSystemTheme } from './../appearance/theme';
@@ -18,6 +19,7 @@ import { refreshFeedRows, syncFeedAutoScroll } from './feed.js';
 import { stageApi } from '../react/application-residents';
 import { syncJavImages } from './../jav-artwork';
 import { coverAnchor } from './../card-art/framing';
+import { DEFAULT_SFW_SHORTCUT, SFW_SHORTCUT_KEY, parseShortcut, serializeShortcut } from './../keyboard-shortcut';
 import { mediaState, repaintDetailPoster } from './media.js';
 import { loadingState } from './loading.js';
 import { updateManagedRoute } from './../history/managed';
@@ -120,6 +122,18 @@ export function setCensored(on){
   if(on)releaseHoverPreviews();
 }
 
+/** SFW 开关键：本机存的那份读不出来时回到默认 Shift+S。 */
+export function sfwShortcut(){
+  return parseShortcut(localStorage.getItem(SFW_SHORTCUT_KEY))||parseShortcut(DEFAULT_SFW_SHORTCUT);
+}
+
+/** 传空恢复默认。存本机、不进同步设置，见 `keyboard-shortcut.ts`。 */
+export function setSfwShortcut(shortcut){
+  if(shortcut)localStorage.setItem(SFW_SHORTCUT_KEY,serializeShortcut(shortcut));
+  else localStorage.removeItem(SFW_SHORTCUT_KEY);
+  preferencesState.settingsStore.notify();
+}
+
 export function setHighContrast(on){
   localStorage.setItem('peach.high-contrast',String(on));
   document.documentElement.classList.toggle('board-high-contrast',on);
@@ -165,6 +179,10 @@ preferencesState.settingsEffects = {
     setNameLanguage(preferencesState.appSettings.performerNameLanguage);
     loadingState.syncPageTitle(location.href);
     catalogState.barsRendered='';buildBars();
+  },
+  /* 按本地存下的那份重新算一遍：算出来和页面正在用的不同才重载。存储不可写时算出来还是旧语言，不会一直重载。 */
+  interfaceLanguage:()=>{
+    if(storedInterfaceLanguage()!==interfaceLanguage)location.reload();
   },
   theme:()=>applyTheme(),
   /* 开这一格时立刻响一声开关音，人才知道它开了。关的那一声由 document 上的 change 监听
